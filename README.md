@@ -1,7 +1,7 @@
 # XGBoost-Based Options Volatility Spike Predictor
 
 Predict imminent implied volatility (IV) spikes for SPY/SPX ATM options using engineered features from prices, realized vol, technicals, and (synthetic or real) Greeks.  
-**Target:** whether IV rises ≥15% within the next 3 trading days.
+**Target:** whether IV rises $\ge 15\%$ within the next 3 trading days.
 
 
 
@@ -70,25 +70,25 @@ Place file at `data/options_chain.csv`. If not available, **synthetic** Greeks/I
 - volume_mean20, volume_ratio
 
 **Vol/market features**
-- realized_vol_(5, 10, 20, 30) = rolling std * sqrt(252)
-- vix_proxy ≈ realized_vol_30 * 100
+- `realized_vol_(5, 10, 20, 30)` = rolling std * $\sqrt{252}$
+- `vix_proxy` $\approx$ `realized_vol_30` * 100
 - vix_proxy_chg = pct_change
 
 **Greeks (synthetic when needed)**
-- iv ≈ realized_vol_20*(1.2 + 0.1*ε), boosted on large moves / bear regimes
-- delta ≈ 0.5 + 0.2*tanh(price_vs_sma10*2)
-- gamma ≈ 0.1*exp(-2*price_vs_sma10^2)
-- vega ≈ iv*gamma*0.1
-- theta ≈ -gamma*iv*close/365
+- `iv` $\approx$ `realized_vol_20`*(1.2 + 0.1*$\epsilon$), boosted on large moves / bear regimes
+- `delta` $\approx$ 0.5 + 0.2*tanh(`price_vs_sma10`*2)
+- `gamma` $\approx$ 0.1*exp(-2*`price_vs_sma10`^2)
+- `vega` $\approx$ `iv`*`gamma`*0.1
+- `theta` $\approx$ -`gamma`*`iv`*close/365
 - iv_vs_rv = iv / realized_vol_20 - 1
 - iv_percentile_60 = rolling percentile rank of iv (60d)
 
 **Regime feature**
-- market_trend ∈ (-1, 0, 1) by price_vs_sma20 thresholds
+- `market_trend` $\in$ (-1, 0, 1) by price_vs_sma20 thresholds
 
 ## Target
 
-- `iv_spike_3d`: 1 if `iv[t+3] / iv[t] - 1 ≥ 0.15`, else 0  
+- `iv_spike_3d`: 1 if $iv_{t+3} / iv_t - 1 \ge 0.15$, else 0  
 - also logs `iv_change_3d` for analysis
 
 ## Modeling
@@ -104,8 +104,8 @@ Place file at `data/options_chain.csv`. If not available, **synthetic** Greeks/I
 ## Trading Simulation
 
 - **Signal**: predict spike today → enter at close, exit next day
-- **Return proxy**: `iv[t+1] / iv[t] - 1` (stand‑in for ATM straddle sensitivity)
-- Summary: #trades, hit rate, avg return, Sharpe(√252)
+- **Return proxy**: $iv_{t+1} / iv_t - 1$ (stand‑in for ATM straddle sensitivity)
+- Summary: #trades, hit rate, avg return, Sharpe($\sqrt{252}$)
 
 ## Why this is hard (and valuable to learn)
 - IV is anticipatory and reflexive; spikes are rare and regime‑dependent.
