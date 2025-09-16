@@ -3,7 +3,7 @@
 Predict imminent implied volatility (IV) spikes for SPY/SPX ATM options using engineered features from prices, realized vol, technicals, and (synthetic or real) Greeks.  
 **Target:** whether IV rises ≥15% within the next 3 trading days.
 
-> ✅ This repo is built to be résumé-ready and education‑first: clean pipeline, leakage guards, baseline vs XGBoost, CV with `TimeSeriesSplit`, and a simple trading simulation.
+
 
 ## Project Structure
 
@@ -110,7 +110,7 @@ Place file at `data/options_chain.csv`. If not available, **synthetic** Greeks/I
 ## Why this is hard (and valuable to learn)
 - IV is anticipatory and reflexive; spikes are rare and regime‑dependent.
 - Microstructure/holidays/earnings/Fed events cause nonstationarities.
-- The pipeline teaches **feature engineering, leakage control, and time‑series CV**—all résumé‑savvy skills.
+- 
 
 ## Using Real Options Data (if you have it)
 - Put `data/options_chain.csv` in the expected schema (above).
