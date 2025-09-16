@@ -9,6 +9,6 @@ class Config:
     features_csv: str = "data/features_labeled.csv"
     options_csv: str = "data/options_chain.csv"  # only needed if real data provided
     outputs_dir: str = "outputs"
-    spike_threshold: float = 0.05
+    spike_threshold: float = 0.15
     lookahead_days: int = 3
     train_frac: float = 0.7

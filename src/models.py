@@ -2,15 +2,20 @@ import os, json, numpy as np, pandas as pd, matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import TimeSeriesSplit, GridSearchCV
-from sklearn.metrics import roc_auc_score, roc_curve, classification_report, confusion_matrix
+from sklearn.metrics import roc_auc_score, roc_curve, classification_report, confusion_matrix, precision_recall_curve, average_precision_score, f1_score
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from xgboost import XGBClassifier
 
-def chronological_split(df: pd.DataFrame, train_frac: float = 0.7):
+def chronological_split(df: pd.DataFrame, train_frac: float = 0.7, gap_days: int = 0):
     n = len(df)
     cut = int(n * train_frac)
-    return df.iloc[:cut], df.iloc[cut:]
+    train_end = cut
+    test_start = cut + gap_days
+    if test_start >= n:
+        # Handle case where gap pushes test set out of bounds
+        return df.iloc[:train_end], pd.DataFrame()
+    return df.iloc[:train_end], df.iloc[test_start:]
 
 def train_baseline_logreg(trainX, trainy, testX, testy):
     # Create a pipeline that first imputes missing values, then scales the data
@@ -25,7 +30,7 @@ def train_baseline_logreg(trainX, trainy, testX, testy):
     # For compatibility with old return format, we can return the whole pipeline
     return {'model': pipeline, 'scaler': pipeline.named_steps['scaler'], 'auc': auc, 'proba': proba}
 
-def train_xgb(trainX, trainy, testX, testy):
+def train_xgb(trainX, trainy, testX, testy, lookahead_days: int):
     # Create a pipeline that imputes, scales, and then classifies
     pipeline = Pipeline([
         ('imputer', SimpleImputer(strategy='mean')),
@@ -47,7 +52,7 @@ def train_xgb(trainX, trainy, testX, testy):
         'classifier__colsample_bytree': [0.8, 0.9],
     }
     
-    tscv = TimeSeriesSplit(n_splits=3)
+    tscv = TimeSeriesSplit(n_splits=3, gap=lookahead_days)
     gs = GridSearchCV(pipeline, params, scoring='roc_auc', cv=tscv, n_jobs=-1, verbose=0)
     gs.fit(trainX, trainy)
     best = gs.best_estimator_
@@ -65,8 +70,32 @@ def plot_roc_curves(y_true, p1, p2, labels, outpath):
     plt.xlabel('FPR'); plt.ylabel('TPR'); plt.legend(); plt.tight_layout()
     plt.savefig(outpath, dpi=140); plt.close()
 
-def plot_confusions(y_true, p1, p2, outpath):
-    thr = 0.5
+def plot_pr_curves(y_true, p1, p2, labels, outpath):
+    prec1, recall1, _ = precision_recall_curve(y_true, p1)
+    prec2, recall2, _ = precision_recall_curve(y_true, p2)
+    ap1 = average_precision_score(y_true, p1)
+    ap2 = average_precision_score(y_true, p2)
+    
+    plt.figure(figsize=(6,5))
+    plt.plot(recall1, prec1, label=f"{labels[0]} (AP={ap1:.2f})")
+    plt.plot(recall2, prec2, label=f"{labels[1]} (AP={ap2:.2f})")
+    plt.xlabel('Recall'); plt.ylabel('Precision'); plt.legend(); plt.tight_layout()
+    plt.savefig(outpath, dpi=140); plt.close()
+
+def find_optimal_threshold(y_true, proba):
+    precision, recall, thresholds = precision_recall_curve(y_true, proba)
+    # You can use different strategies to find the optimal threshold.
+    # For example, maximizing F1-score.
+    f1_scores = 2 * (precision * recall) / (precision + recall)
+    # thresholds is one element shorter than precision and recall
+    # so we need to handle the indexing
+    f1_scores = f1_scores[:-1]
+    thresholds = thresholds
+    best_f1_idx = np.argmax(f1_scores)
+    best_threshold = thresholds[best_f1_idx]
+    return best_threshold
+
+def plot_confusions(y_true, p1, p2, outpath, thr=0.5):
     y1 = (p1>=thr).astype(int)
     y2 = (p2>=thr).astype(int)
     cms = [confusion_matrix(y_true, y1), confusion_matrix(y_true, y2)]
