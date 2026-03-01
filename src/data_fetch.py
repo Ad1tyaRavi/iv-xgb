@@ -151,7 +151,7 @@ def fetch_local_spx_data(data_dir: str = "data/SPXdata") -> pd.DataFrame:
     under['date'] = pd.to_datetime(under['date'])
     
     # Load options efficiently
-    cols = ['date', 'exdate', 'delta', 'gamma', 'vega', 'theta', 'impl_volatility']
+    cols = ['date', 'exdate', 'cp_flag', 'delta', 'gamma', 'vega', 'theta', 'impl_volatility', 'best_bid', 'best_offer']
     print(f"Loading options data from {opt_path} (3.6GB, this might take a moment)...")
     
     # We read in chunks to filter on the fly or just use usecols and filter immediately
@@ -164,13 +164,12 @@ def fetch_local_spx_data(data_dir: str = "data/SPXdata") -> pd.DataFrame:
         chunk['exdate'] = pd.to_datetime(chunk['exdate'])
         chunk['dte'] = (chunk['exdate'] - chunk['date']).dt.days
         
-        # Filter for near-ATM and 20-50 DTE
-        # This drastically reduces the data size
-        mask = (chunk['dte'] >= 20) & (chunk['dte'] <= 50) & (chunk['delta'].abs() >= 0.35) & (chunk['delta'].abs() <= 0.65)
+        # Filter for near-ATM and 20-50 DTE, and Calls only
+        mask = (chunk['cp_flag'] == 'C') & (chunk['dte'] >= 20) & (chunk['dte'] <= 50) & (chunk['delta'].abs() >= 0.35) & (chunk['delta'].abs() <= 0.65)
         filtered_chunks.append(chunk[mask])
     
     opts = pd.concat(filtered_chunks)
-    opts = opts.dropna(subset=['impl_volatility', 'delta'])
+    opts = opts.dropna(subset=['impl_volatility', 'delta', 'best_bid', 'best_offer'])
     
     print(f"Aggregating {len(opts)} filtered rows into daily ATM metrics...")
     
@@ -192,10 +191,12 @@ def fetch_local_spx_data(data_dir: str = "data/SPXdata") -> pd.DataFrame:
             'delta': top['delta'].mean(),
             'gamma': top['gamma'].mean(),
             'vega': top['vega'].mean(),
-            'theta': top['theta'].mean()
+            'theta': top['theta'].mean(),
+            'best_bid': top['best_bid'].mean(),
+            'best_offer': top['best_offer'].mean()
         })
 
-    daily_opts = opts.groupby('date').apply(aggregate_daily).reset_index()
+    daily_opts = opts.groupby('date').apply(aggregate_daily, include_groups=False).reset_index()
     
     # Merge
     merged = pd.merge(under, daily_opts, on='date', how='inner')

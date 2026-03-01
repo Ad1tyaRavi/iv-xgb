@@ -56,7 +56,7 @@ def run(cfg: Config):
     all_p_xgb = []
     all_test_dfs = []
 
-    X_cols = final.drop(columns=['date','close','iv_spike_3d','iv_change_3d','iv_spike_1d','iv_spike_5d','iv_change_1d','iv_change_5d'], errors='ignore').columns
+    X_cols = final.drop(columns=['date','close','iv_spike_3d','iv_change_3d','iv_spike_1d','iv_spike_5d','iv_change_1d','iv_change_5d', 'best_bid', 'best_offer'], errors='ignore').columns
 
     for i, (train_idx, test_idx) in enumerate(tscv.split(final)):
         print(f"--- Fold {i+1}/{n_splits} ---")
