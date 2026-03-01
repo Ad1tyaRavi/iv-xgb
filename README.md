@@ -54,15 +54,13 @@ python -m src.main
 
 ## Data
 
-### Underlying
-Downloaded via `yfinance` (daily OHLCV).
+By default, the pipeline runs on a historical SPX dataset expected in `data/SPXdata/`. This includes:
+- `SPXsecurites.csv`: Underlying index OHLCV.
+- `SPXoptions.csv`: Daily options chains (used to extract ATM 30 DTE calls, bid/ask spreads, and Greeks).
+- `SPXhistvol.csv`: Historical realized volatility.
+- `zerocouponcurve.csv`: Daily risk-free rates.
 
-### Options chain
-**Ideal:** Historical chain with columns:
-```
-date, expiry, strike, option_type, iv, delta, gamma, vega, theta, opt_price, under_price, volume, open_interest
-```
-Place file at `data/options_chain.csv`. If not available, **synthetic** Greeks/IV are generated realistically from underlyer features and realized vol.
+*(Note: If this local data is unavailable, you can fall back to using `yfinance` for underlying prices and synthetically generating options Greeks by running with `--use-synthetic-greeks 1`.)*
 
 ## Features
 
@@ -74,17 +72,15 @@ Place file at `data/options_chain.csv`. If not available, **synthetic** Greeks/I
 
 **Vol/market features**
 - `realized_vol_(5, 10, 20, 30)` = rolling std * $\sqrt{252}$
-- `vix_proxy` $\approx$ `realized_vol_30` * 100
+- Exact 30-day historical volatility (`hist_vol_30`)
+- `vix_proxy` (based on `hist_vol_30` or Rogers-Satchell calculation)
 - vix_proxy_chg = pct_change
 
-**Greeks (synthetic when needed)**
-- `iv` $\approx$ `realized_vol_20`*(1.2 + 0.1*$\epsilon$), boosted on large moves / bear regimes
-- `delta` $\approx$ 0.5 + 0.2*tanh(`price_vs_sma10`*2)
-- `gamma` $\approx$ 0.1*exp(-2*`price_vs_sma10`^2)
-- `vega` $\approx$ `iv`*`gamma`*0.1
-- `theta` $\approx$ -`gamma`*`iv`*close/365
-- iv_vs_rv = iv / realized_vol_20 - 1
+**Greeks & Pricing (from real SPX data)**
+- `iv`, `delta`, `gamma`, `vega`, `theta` for 30 DTE ATM calls
+- iv_vs_rv = iv / hist_vol_30 - 1
 - iv_percentile_60 = rolling percentile rank of iv (60d)
+*(Synthetic generation is available as a fallback if real data isn't provided).*
 
 **Regime feature**
 - `market_trend` $\in$ (-1, 0, 1) by price_vs_sma20 thresholds
@@ -106,24 +102,21 @@ Place file at `data/options_chain.csv`. If not available, **synthetic** Greeks/I
 
 ## Trading Simulation
 
-- **Signal**: predict spike today → enter at close, exit next day
-- **Return proxy**: $iv_{t+1} / iv_t - 1$ (stand‑in for ATM straddle sensitivity)
-- Summary: #trades, hit rate, avg return, Sharpe($\sqrt{252}$)
+We run a high-fidelity backtest to see how the model would perform in the real market:
+- **Signal**: Predict an IV spike today.
+- **Execution**: Buy an ATM 30 DTE Call option at the historical **Best Offer** (Ask). 
+- **Holding Period**: Hold for exactly 3 days to match our prediction window.
+- **Exit**: Sell at the historical **Best Bid** (crossing the spread).
+- **Summary**: We break down the number of trades, win rate, average return, and Sharpe proxy across different market regimes (Bull/Bear/Neutral).
 
 ## Why this is hard (and valuable to learn)
 - IV is anticipatory and reflexive; spikes are rare and regime‑dependent.
 - Microstructure/holidays/earnings/Fed events cause nonstationarities.
-- 
-
-## Using Real Options Data (if you have it)
-- Put `data/options_chain.csv` in the expected schema (above).
-- Run with `--use-synthetic-greeks 0`. The rest of the pipeline is unchanged.
 
 ## Next Steps / Extensions
-- Add event features (FOMC/earnings CPI/PPI) and test feature ablations.
-- Try calibration (Platt / Isotonic) and threshold optimization by F1.
-- Add SHAP analysis for model explainability.
-- Extend backtest to actual straddle P&L if you have option quotes.
+- Add macro event features (FOMC, CPI, PPI) to catch structural volatility events.
+- Explore calibration (Platt / Isotonic) to get better probability estimates.
+- Add SHAP analysis to make the XGBoost model's decisions more interpretable.
 
 ---
 
