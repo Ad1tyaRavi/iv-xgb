@@ -22,7 +22,7 @@ iv_spike_xgb_project/
 ├── data/               # cached CSVs created at runtime
 ├── outputs/            # metrics, plots, feature importances
 └── notebooks/
-    └── IV_Spike_Predictor_guide.ipynb (optional; create later)
+    └── IV_Spike_Predictor_Analysis.ipynb # Rich analysis of the model performance
 ```
 
 ## Quickstart
