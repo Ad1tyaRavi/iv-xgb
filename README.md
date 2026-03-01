@@ -28,24 +28,27 @@ iv_spike_xgb_project/
 ## Quickstart
 
 1) **Install dependencies**
-```
+```bash
 python -m venv .venv
 source .venv/bin/activate  # windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
 2) **Run the full pipeline (download → features → labels → models → reports)**
+```bash
+python -m src.main
 ```
-python -m src.main --ticker SPY --use-synthetic-greeks 1
-```
-- Use `--ticker SPX` if you have data access (yfinance provides SPX proxy as `^GSPC`; true index options chains require paid sources).  
-- Set `--use-synthetic-greeks 0` only if you provide a historical options chain with IV/Greeks (place as `data/options_chain.csv` with the columns described below).
+- By default, the project now expects high-quality local SPX options and underlying data located in `data/SPXdata/`. 
+- If you don't have this data and wish to use `yfinance` to fetch underlying prices and synthesize options Greeks, you can run:
+  ```bash
+  python -m src.main --ticker SPY --use-synthetic-greeks 1
+  ```
 
 3) **Outputs**
 - `outputs/metrics.json` — AUC, precision/recall/F1 for both Baseline(LogReg) and XGBoost
 - `outputs/feature_importance_xgb.csv` — gain & weight importances
 - `outputs/roc_curves.png` — ROC curves (Baseline vs XGBoost)
-- `outputs/confusion_matrices.png` — pretty CM plots
+- `outputs/confusion_matrices_0.5.png` & `confusion_matrices_optimal.png` — pretty CM plots
 - `outputs/backtest_summary.json` — #trades, win rate, average return, Sharpe
 - `data/features_labeled.csv` — final training table (features + targets)
 

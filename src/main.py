@@ -1,6 +1,6 @@
 import os, json, argparse, numpy as np, pandas as pd, datetime as dt
 from .config import Config
-from .data_fetch import fetch_underlying_ohlcv
+from .data_fetch import fetch_underlying_ohlcv, fetch_local_spx_data
 from .features import add_underlying_features, synthesize_greeks, finalize_feature_table
 from .labeling import make_labels
 from .models import chronological_split, train_baseline_logreg, train_xgb, plot_roc_curves, plot_confusions, feature_importance_xgb, plot_pr_curves, find_optimal_threshold
@@ -13,18 +13,37 @@ def run(cfg: Config):
     os.makedirs(cfg.outputs_dir, exist_ok=True)
 
     # 1) Data
-    under = fetch_underlying_ohlcv(cfg.ticker, cfg.start, cfg.end)
+    # Fetch local SPX data including real IV and Greeks
+    data = fetch_local_spx_data()
+    
+    # Ensure it's sorted by date for walk-forward
+    data = data.sort_values('date')
 
     # 2) Features
-    features = add_underlying_features(under)
-    rng = np.random.default_rng(42)
-    features = synthesize_greeks(features, rng) if cfg.use_synthetic_greeks else features
+    # This adds technical indicators based on underlying OHLCV
+    features = add_underlying_features(data)
+    
+    # We already have iv, delta, gamma, vega, theta from local data.
+    # We only run synthesize_greeks if we want to overwrite them (not recommended)
+    if cfg.use_synthetic_greeks:
+        rng = np.random.default_rng(42)
+        features = synthesize_greeks(features, rng)
+    else:
+        # If not synthesizing, ensure some required relative metrics are calculated
+        # (These are usually added in synthesize_greeks, but here we do it for real data)
+        rv20 = features['rogers_satchell_vol_20']
+        features['iv_vs_rv'] = features['iv'] / rv20 - 1
+        features['iv_percentile_60'] = features['iv'].rolling(60).apply(
+            lambda x: pd.Series(x).rank(pct=True).iloc[-1] if len(x)==60 else np.nan, raw=False
+        )
 
     # 3) Labels
+    # make_labels expects a column 'iv' to calculate 'iv_change_3d' and 'iv_spike_3d'
     labeled = make_labels(features, spike_threshold=cfg.spike_threshold, lookahead_days=cfg.lookahead_days)
 
     # 4) Final table
     final = finalize_feature_table(labeled)
+    # The columns we drop here should be careful not to drop the features we just added
     final = final.dropna(subset=['iv_spike_3d', 'market_trend'])
     final.to_csv(cfg.features_csv, index=False)
 
@@ -126,17 +145,31 @@ def run(cfg: Config):
                       'Backtest': {'baseline': bt_base, 'xgb_0.5': bt_xgb_05, 'xgb_optimal': bt_xgb_opt}}, indent=2))
 
 if __name__ == '__main__':
+
     p = argparse.ArgumentParser()
-    p.add_argument('--ticker', type=str, default='SPY')
-    p.add_argument('--start', type=str, default='2010-01-01')
+
+    p.add_argument('--ticker', type=str, default='SPX')
+
+    p.add_argument('--start', type=str, default='2006-01-01')
+
     p.add_argument('--end', type=str, default=None)
-    p.add_argument('--use-synthetic-greeks', type=int, default=1)
+
+    p.add_argument('--use-synthetic-greeks', type=int, default=0)
+
     args = p.parse_args()
 
+
+
     cfg = Config(
+
         ticker=args.ticker,
+
         start=args.start,
+
         end=args.end,
+
         use_synthetic_greeks=bool(args.use_synthetic_greeks)
+
     )
+
     run(cfg)
