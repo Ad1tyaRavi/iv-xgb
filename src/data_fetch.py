@@ -142,14 +142,33 @@ def fetch_local_spx_data(data_dir: str = "data/SPXdata") -> pd.DataFrame:
     """
     Loads SPX underlying and options data from local CSVs.
     Aggregates options to daily ATM IV and Greeks with RAM efficiency.
+    Also incorporates historical volatility and zero-coupon curve data.
     """
     sec_path = os.path.join(data_dir, "SPXsecurites.csv")
     opt_path = os.path.join(data_dir, "SPXoptions.csv")
+    hist_vol_path = os.path.join(data_dir, "SPXhistvol.csv")
+    rate_path = os.path.join(data_dir, "zerocouponcurve.csv")
     
     print(f"Loading underlying data from {sec_path}...")
     under = pd.read_csv(sec_path)
     under['date'] = pd.to_datetime(under['date'])
     
+    print(f"Loading historical volatility from {hist_vol_path}...")
+    hist_vol = pd.read_csv(hist_vol_path)
+    hist_vol['date'] = pd.to_datetime(hist_vol['date'])
+    # Extract 30-day historical volatility
+    v30 = hist_vol[hist_vol['days'] == 30].rename(columns={'volatility': 'hist_vol_30'})[['date', 'hist_vol_30']]
+    
+    print(f"Loading risk-free rates from {rate_path}...")
+    rates = pd.read_csv(rate_path)
+    rates['date'] = pd.to_datetime(rates['date'])
+    # Get the rate closest to 30 days for each date
+    idx = rates.groupby('date')['days'].apply(lambda x: (x - 30).abs().idxmin())
+    rate30 = rates.loc[idx][['date', 'rate']].rename(columns={'rate': 'risk_free_rate'})
+    
+    # Convert from percentage (e.g., 4.5) to decimal (e.g., 0.045)
+    rate30['risk_free_rate'] = rate30['risk_free_rate'] / 100.0
+
     # Load options efficiently
     cols = ['date', 'exdate', 'cp_flag', 'delta', 'gamma', 'vega', 'theta', 'impl_volatility', 'best_bid', 'best_offer']
     print(f"Loading options data from {opt_path} (3.6GB, this might take a moment)...")
@@ -198,8 +217,15 @@ def fetch_local_spx_data(data_dir: str = "data/SPXdata") -> pd.DataFrame:
 
     daily_opts = opts.groupby('date').apply(aggregate_daily, include_groups=False).reset_index()
     
-    # Merge
+    # Merge all datasets
     merged = pd.merge(under, daily_opts, on='date', how='inner')
+    merged = pd.merge(merged, v30, on='date', how='left')
+    merged = pd.merge(merged, rate30, on='date', how='left')
+    
+    # Forward fill any missing rates or hist vol if they exist
+    merged['risk_free_rate'] = merged['risk_free_rate'].ffill().fillna(0.02) # default to 2% if completely missing
+    merged['hist_vol_30'] = merged['hist_vol_30'].ffill()
+    
     merged = merged.sort_values('date')
     
     print(f"Final dataset prepared: {len(merged)} days.")

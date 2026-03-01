@@ -16,19 +16,20 @@ def realistic_iv_signal_backtest(df: pd.DataFrame, proba_col: str, prob_threshol
         else:
             # Fallback to synthetic Black-Scholes pricing
             time_to_maturity_days = 30
-            risk_free_rate = 0.02
-
+            
             S_t = sub_df['close']
             K_t = sub_df['close']
             iv_t = sub_df['iv']
             t_t = time_to_maturity_days / 365.0
+            r_t = sub_df['risk_free_rate'] if 'risk_free_rate' in sub_df.columns else 0.02
 
             S_t1 = sub_df['close'].shift(-hold_days)
             iv_t1 = sub_df['iv'].shift(-hold_days)
             t_t1 = (time_to_maturity_days - hold_days) / 365.0
+            r_t1 = sub_df['risk_free_rate'].shift(-hold_days) if 'risk_free_rate' in sub_df.columns else 0.02
 
-            entry_price = black_scholes_price('c', S_t, K_t, t_t, risk_free_rate, iv_t) * (1 + bid_ask_spread_pct / 2)
-            exit_price = black_scholes_price('c', S_t1, K_t, t_t1, risk_free_rate, iv_t1) * (1 - bid_ask_spread_pct / 2)
+            entry_price = black_scholes_price('c', S_t, K_t, t_t, r_t, iv_t) * (1 + bid_ask_spread_pct / 2)
+            exit_price = black_scholes_price('c', S_t1, K_t, t_t1, r_t1, iv_t1) * (1 - bid_ask_spread_pct / 2)
         
         ret = exit_price / entry_price - 1.0
         trade_ret = (ret * sig).fillna(0.0)

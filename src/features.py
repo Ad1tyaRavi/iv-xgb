@@ -72,7 +72,12 @@ def add_underlying_features(df: pd.DataFrame) -> pd.DataFrame:
         out[f'parkinson_vol_{w}'] = parkinson_vol(out['high'], out['low'], w)
         out[f'rogers_satchell_vol_{w}'] = rogers_satchell_vol(out['high'], out['low'], out['open'], out['close'], w)
 
-    out['vix_proxy'] = out['rogers_satchell_vol_20'] * 100 # Use Rogers-Satchell as the main proxy
+    # Use actual 30D historical volatility as main proxy if available, else fallback
+    if 'hist_vol_30' in out.columns:
+        out['vix_proxy'] = out['hist_vol_30'] * 100
+    else:
+        out['vix_proxy'] = out['rogers_satchell_vol_20'] * 100 # Use Rogers-Satchell as the main proxy
+    
     out['vix_proxy_chg'] = out['vix_proxy'].pct_change()
     # Regime
     conds = [
@@ -86,8 +91,9 @@ def synthesize_greeks(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFram
     out = df.copy()
     # --- IV Synthesis ---
     noise = rng.normal(0, 1, size=len(out))
-    # Use Rogers-Satchell vol as the base for IV synthesis
-    out['iv'] = out['rogers_satchell_vol_20'] * (1.2 + 0.1 * noise)
+    # Use Rogers-Satchell vol or hist_vol_30 as the base for IV synthesis
+    base_vol = out['hist_vol_30'] if 'hist_vol_30' in out.columns else out['rogers_satchell_vol_20']
+    out['iv'] = base_vol * (1.2 + 0.1 * noise)
     big_move = out['returns'].abs() > 0.02
     bear = out['market_trend'] == -1
     out.loc[big_move, 'iv'] *= 1.15
@@ -114,8 +120,8 @@ def synthesize_greeks(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFram
     out['theta'] = theta
 
     # --- Relative IV & Percentile ---
-    rv20 = out['rogers_satchell_vol_20']
-    out['iv_vs_rv'] = out['iv'] / rv20 - 1
+    rv_base = out['hist_vol_30'] if 'hist_vol_30' in out.columns else out['rogers_satchell_vol_20']
+    out['iv_vs_rv'] = out['iv'] / rv_base - 1
     out['iv_percentile_60'] = out['iv'].rolling(60).apply(
         lambda x: pd.Series(x).rank(pct=True).iloc[-1] if len(x)==60 else np.nan, raw=False
     )

@@ -31,8 +31,8 @@ def run(cfg: Config):
     else:
         # If not synthesizing, ensure some required relative metrics are calculated
         # (These are usually added in synthesize_greeks, but here we do it for real data)
-        rv20 = features['rogers_satchell_vol_20']
-        features['iv_vs_rv'] = features['iv'] / rv20 - 1
+        rv_base = features['hist_vol_30'] if 'hist_vol_30' in features.columns else features['rogers_satchell_vol_20']
+        features['iv_vs_rv'] = features['iv'] / rv_base - 1
         features['iv_percentile_60'] = features['iv'].rolling(60).apply(
             lambda x: pd.Series(x).rank(pct=True).iloc[-1] if len(x)==60 else np.nan, raw=False
         )
