@@ -43,8 +43,37 @@ def run(cfg: Config):
 
     # 4) Final table
     final = finalize_feature_table(labeled)
+    
+    # Pre-calculate chronological trade returns for the backtest here, before any CV splitting
+    # This prevents .shift() misalignment across fold gaps in the walk-forward validation
+    if 'best_offer' in final.columns and 'best_bid' in final.columns:
+        final['trade_ret'] = final['best_bid'].shift(-cfg.lookahead_days) / final['best_offer'] - 1.0
+    else:
+        # Fallback synthetic pricing
+        from .features import black_scholes_price
+        S_t = final['close']
+        K_t = final['close']
+        iv_t = final['iv']
+        t_t = 30 / 365.0
+        r_t = final['risk_free_rate'] if 'risk_free_rate' in final.columns else 0.02
+
+        S_t1 = final['close'].shift(-cfg.lookahead_days)
+        iv_t1 = final['iv'].shift(-cfg.lookahead_days)
+        t_t1 = (30 - cfg.lookahead_days) / 365.0
+        r_t1 = final['risk_free_rate'].shift(-cfg.lookahead_days) if 'risk_free_rate' in final.columns else 0.02
+
+        entry_price = black_scholes_price('c', S_t, K_t, t_t, r_t, iv_t) * (1 + 0.005) # 1% spread
+        exit_price = black_scholes_price('c', S_t1, K_t, t_t1, r_t1, iv_t1) * (1 - 0.005)
+        final['trade_ret'] = exit_price / entry_price - 1.0
+
     # The columns we drop here should be careful not to drop the features we just added
-    final = final.dropna(subset=['iv_spike_3d', 'market_trend'])
+    final = final.dropna(subset=['iv_spike_3d', 'market_trend', 'trade_ret'])
+    
+    X_cols = final.drop(columns=['date','close','iv_spike_3d','iv_change_3d','iv_spike_1d','iv_spike_5d','iv_change_1d','iv_change_5d', 'best_bid', 'best_offer', 'trade_ret'], errors='ignore').columns
+    
+    # Drop rows with NaNs in features to ensure clean training without imputer warnings
+    final = final.dropna(subset=X_cols)
+
     final.to_csv(cfg.features_csv, index=False)
 
     # --- Walk-Forward Evaluation ---
@@ -55,8 +84,6 @@ def run(cfg: Config):
     all_p_base = []
     all_p_xgb = []
     all_test_dfs = []
-
-    X_cols = final.drop(columns=['date','close','iv_spike_3d','iv_change_3d','iv_spike_1d','iv_spike_5d','iv_change_1d','iv_change_5d', 'best_bid', 'best_offer'], errors='ignore').columns
 
     for i, (train_idx, test_idx) in enumerate(tscv.split(final)):
         print(f"--- Fold {i+1}/{n_splits} ---")

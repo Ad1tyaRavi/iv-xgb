@@ -85,13 +85,19 @@ def plot_pr_curves(y_true, p1, p2, labels, outpath):
 def find_optimal_threshold(y_true, proba):
     precision, recall, thresholds = precision_recall_curve(y_true, proba)
     # You can use different strategies to find the optimal threshold.
-    # For example, maximizing F1-score.
-    f1_scores = 2 * (precision * recall) / (precision + recall)
+    # For example, maximizing F1-score. Safely handle division by zero.
+    with np.errstate(divide='ignore', invalid='ignore'):
+        f1_scores = np.where((precision + recall) == 0, 0, 2 * (precision * recall) / (precision + recall))
     # thresholds is one element shorter than precision and recall
     # so we need to handle the indexing
     f1_scores = f1_scores[:-1]
-    thresholds = thresholds
-    best_f1_idx = np.argmax(f1_scores)
+    
+    # Avoid selecting a threshold that makes 0 predictions
+    valid_idx = np.where(thresholds < np.max(proba))[0]
+    if len(valid_idx) == 0:
+        return 0.5
+        
+    best_f1_idx = valid_idx[np.nanargmax(f1_scores[valid_idx])]
     best_threshold = thresholds[best_f1_idx]
     return best_threshold
 

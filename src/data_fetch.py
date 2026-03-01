@@ -173,9 +173,10 @@ def fetch_local_spx_data(data_dir: str = "data/SPXdata") -> pd.DataFrame:
     cols = ['date', 'exdate', 'cp_flag', 'delta', 'gamma', 'vega', 'theta', 'impl_volatility', 'best_bid', 'best_offer']
     print(f"Loading options data from {opt_path} (3.6GB, this might take a moment)...")
     
+    import gc
     # We read in chunks to filter on the fly or just use usecols and filter immediately
     # For 3.6GB, usecols + immediate filtering is usually OK if RAM is > 8GB
-    opts_iter = pd.read_csv(opt_path, usecols=cols, chunksize=100000)
+    opts_iter = pd.read_csv(opt_path, usecols=cols, chunksize=50000)
     
     filtered_chunks = []
     for chunk in opts_iter:
@@ -185,7 +186,9 @@ def fetch_local_spx_data(data_dir: str = "data/SPXdata") -> pd.DataFrame:
         
         # Filter for near-ATM and 20-50 DTE, and Calls only
         mask = (chunk['cp_flag'] == 'C') & (chunk['dte'] >= 20) & (chunk['dte'] <= 50) & (chunk['delta'].abs() >= 0.35) & (chunk['delta'].abs() <= 0.65)
-        filtered_chunks.append(chunk[mask])
+        filtered_chunks.append(chunk[mask].copy())
+        del chunk
+        gc.collect()
     
     opts = pd.concat(filtered_chunks)
     opts = opts.dropna(subset=['impl_volatility', 'delta', 'best_bid', 'best_offer'])

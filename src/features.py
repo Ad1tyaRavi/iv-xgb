@@ -38,7 +38,7 @@ def rsi(series: pd.Series, window: int = 14) -> pd.Series:
     avg_loss = loss.rolling(window).mean()
     rs = avg_gain / (avg_loss.replace(0, np.nan))
     rsi = 100 - (100 / (1 + rs))
-    return rsi.fillna(method='bfill')
+    return rsi.ffill()
 
 def realized_vol(returns: pd.Series, window: int) -> pd.Series:
     return returns.rolling(window).std() * np.sqrt(252)
@@ -66,7 +66,9 @@ def add_underlying_features(df: pd.DataFrame) -> pd.DataFrame:
     out['price_vs_sma20'] = (out['close'] - out['sma20']) / out['sma20']
     out['rsi14'] = rsi(out['close'], 14)
     out['volume_mean20'] = out['volume'].rolling(20).mean()
-    out['volume_ratio'] = out['volume'] / out['volume_mean20']
+    # Handle division by zero when volume is completely flat (e.g. SPX index)
+    out['volume_ratio'] = out['volume'] / out['volume_mean20'].replace(0, np.nan)
+    out['volume_ratio'] = out['volume_ratio'].fillna(1.0)
     for w in [5,10,20,30]:
         out[f'realized_vol_{w}'] = realized_vol(out['returns'], w)
         out[f'parkinson_vol_{w}'] = parkinson_vol(out['high'], out['low'], w)
