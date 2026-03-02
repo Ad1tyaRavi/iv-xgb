@@ -141,7 +141,7 @@ def fetch_underlying_ohlcv(ticker: str, start: str, end: str|None=None, allow_sy
 def fetch_local_spx_data(data_dir: str = "data/SPXdata") -> pd.DataFrame:
     """
     Loads SPX underlying and options data from local CSVs.
-    Aggregates options to daily ATM IV and Greeks with RAM efficiency.
+    Aggregates options to daily ATM Straddle IV and Greeks with RAM efficiency.
     Also incorporates historical volatility and zero-coupon curve data.
     """
     sec_path = os.path.join(data_dir, "SPXsecurites.csv")
@@ -170,12 +170,10 @@ def fetch_local_spx_data(data_dir: str = "data/SPXdata") -> pd.DataFrame:
     rate30['risk_free_rate'] = rate30['risk_free_rate'] / 100.0
 
     # Load options efficiently
-    cols = ['date', 'exdate', 'cp_flag', 'delta', 'gamma', 'vega', 'theta', 'impl_volatility', 'best_bid', 'best_offer']
+    cols = ['date', 'exdate', 'cp_flag', 'strike_price', 'delta', 'gamma', 'vega', 'theta', 'impl_volatility', 'best_bid', 'best_offer']
     print(f"Loading options data from {opt_path} (3.6GB, this might take a moment)...")
     
     import gc
-    # We read in chunks to filter on the fly or just use usecols and filter immediately
-    # For 3.6GB, usecols + immediate filtering is usually OK if RAM is > 8GB
     opts_iter = pd.read_csv(opt_path, usecols=cols, chunksize=50000)
     
     filtered_chunks = []
@@ -184,8 +182,8 @@ def fetch_local_spx_data(data_dir: str = "data/SPXdata") -> pd.DataFrame:
         chunk['exdate'] = pd.to_datetime(chunk['exdate'])
         chunk['dte'] = (chunk['exdate'] - chunk['date']).dt.days
         
-        # Filter for near-ATM and 20-50 DTE, and Calls only
-        mask = (chunk['cp_flag'] == 'C') & (chunk['dte'] >= 20) & (chunk['dte'] <= 50) & (chunk['delta'].abs() >= 0.35) & (chunk['delta'].abs() <= 0.65)
+        # Filter for near-ATM and 20-50 DTE (both Calls and Puts)
+        mask = (chunk['dte'] >= 20) & (chunk['dte'] <= 50) & (chunk['delta'].abs() >= 0.35) & (chunk['delta'].abs() <= 0.65)
         filtered_chunks.append(chunk[mask].copy())
         del chunk
         gc.collect()
@@ -193,32 +191,38 @@ def fetch_local_spx_data(data_dir: str = "data/SPXdata") -> pd.DataFrame:
     opts = pd.concat(filtered_chunks)
     opts = opts.dropna(subset=['impl_volatility', 'delta', 'best_bid', 'best_offer'])
     
-    print(f"Aggregating {len(opts)} filtered rows into daily ATM metrics...")
+    print(f"Aggregating {len(opts)} filtered rows into daily ATM straddle metrics...")
     
     def aggregate_daily(group):
+        calls = group[group['cp_flag'] == 'C']
+        puts = group[group['cp_flag'] == 'P']
+        
+        pairs = pd.merge(calls, puts, on=['exdate', 'strike_price', 'dte'], suffixes=('_c', '_p'))
+        if pairs.empty:
+            return pd.Series(dtype=float)
+            
         # Target 30 days to expiry
-        group['dte_diff'] = np.abs(group['dte'] - 30)
-        # Target ATM (abs delta 0.5)
-        group['delta_diff'] = np.abs(np.abs(group['delta']) - 0.5)
+        pairs['dte_diff'] = np.abs(pairs['dte'] - 30)
+        # Target ATM: abs delta of call and put around 0.5
+        pairs['delta_diff'] = np.abs(np.abs(pairs['delta_c']) - 0.5) + np.abs(np.abs(pairs['delta_p']) - 0.5)
         
-        # Combined score for "ATM-ness" and "30D-ness"
-        group['score'] = group['dte_diff'] + group['delta_diff'] * 100 # weight delta diff more
+        pairs['score'] = pairs['dte_diff'] + pairs['delta_diff'] * 100
+        pairs = pairs.sort_values('score')
         
-        group = group.sort_values('score')
+        top = pairs.head(3)
         
-        # Take the top 3 and average them
-        top = group.head(3)
         return pd.Series({
-            'iv': top['impl_volatility'].mean(),
-            'delta': top['delta'].mean(),
-            'gamma': top['gamma'].mean(),
-            'vega': top['vega'].mean(),
-            'theta': top['theta'].mean(),
-            'best_bid': top['best_bid'].mean(),
-            'best_offer': top['best_offer'].mean()
+            'iv': top[['impl_volatility_c', 'impl_volatility_p']].mean().mean(),
+            'delta': top['delta_c'].mean() + top['delta_p'].mean(),
+            'gamma': top[['gamma_c', 'gamma_p']].mean().mean(),
+            'vega': top[['vega_c', 'vega_p']].mean().mean(),
+            'theta': top[['theta_c', 'theta_p']].mean().mean(),
+            'best_bid': top['best_bid_c'].mean() + top['best_bid_p'].mean(),
+            'best_offer': top['best_offer_c'].mean() + top['best_offer_p'].mean()
         })
 
     daily_opts = opts.groupby('date').apply(aggregate_daily, include_groups=False).reset_index()
+    daily_opts = daily_opts.dropna(subset=['iv'])
     
     # Merge all datasets
     merged = pd.merge(under, daily_opts, on='date', how='inner')
