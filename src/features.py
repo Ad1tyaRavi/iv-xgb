@@ -147,7 +147,7 @@ def finalize_feature_table(df: pd.DataFrame) -> pd.DataFrame:
         # Volatility & Greeks
         'delta', 'gamma', 'vega', 'theta', 'iv_zscore',
         'hist_vol_30', 'risk_free_rate', 'iv_vs_rv', 'iv_percentile_60',
-        'vix_proxy', 'vix_proxy_chg',
+        'vix_proxy', 'vix_proxy_chg', 'skew_25d', 'term_structure_30_10',
     ]
     
     # Add rolling windows of realized volatility

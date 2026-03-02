@@ -138,11 +138,48 @@ def fetch_underlying_ohlcv(ticker: str, start: str, end: str|None=None, allow_sy
     # If we reach here, fail clearly
     raise RuntimeError("Failed to fetch OHLCV via yfinance (rate limit/empty), and synthetic fallback disabled.")
 
+def fetch_vol_surface_features(data_dir: str = "data/SPXdata") -> pd.DataFrame:
+    """
+    Extracts Skew and Term Structure features from the Vol Surface CSV.
+    Skew: Difference between 25-delta put and 25-delta call IV.
+    Term Structure: Spread between 30-day and 10-day ATM IV.
+    """
+    path = os.path.join(data_dir, "SPXvolsurface.csv")
+    print(f"Extracting surface features from {path}...")
+    
+    df = pd.read_csv(path)
+    df['date'] = pd.to_datetime(df['date'])
+    
+    # 1. Skew (at 30 days)
+    # We look for 25 delta (-25 for put, 25 for call) and days close to 30
+    df_30 = df[df['days'] == 30].copy()
+    
+    # Put IV at -25 delta
+    skew_p = df_30[df_30['delta'] == -25].rename(columns={'impl_volatility': 'iv_put_25'})[['date', 'iv_put_25']]
+    # Call IV at 25 delta
+    skew_c = df_30[df_30['delta'] == 25].rename(columns={'impl_volatility': 'iv_call_25'})[['date', 'iv_call_25']]
+    
+    skew = pd.merge(skew_p, skew_c, on='date', how='inner')
+    skew['skew_25d'] = skew['iv_put_25'] - skew['iv_call_25']
+    
+    # 2. Term Structure (ATM spread: 30d - 10d)
+    # ATM is roughly 50 delta for call or -50 for put
+    atm_30 = df[(df['days'] == 30) & (df['delta'] == 50)].rename(columns={'impl_volatility': 'iv_atm_30'})[['date', 'iv_atm_30']]
+    atm_10 = df[(df['days'] == 10) & (df['delta'] == 50)].rename(columns={'impl_volatility': 'iv_atm_10'})[['date', 'iv_atm_10']]
+    
+    term = pd.merge(atm_30, atm_10, on='date', how='inner')
+    term['term_structure_30_10'] = term['iv_atm_30'] - term['iv_atm_10']
+    
+    # Merge features
+    surf_features = pd.merge(skew[['date', 'skew_25d']], term[['date', 'term_structure_30_10']], on='date', how='inner')
+    
+    return surf_features
+
 def fetch_local_spx_data(data_dir: str = "data/SPXdata") -> pd.DataFrame:
     """
     Loads SPX underlying and options data from local CSVs.
     Aggregates options to daily ATM Straddle IV and Greeks with RAM efficiency.
-    Also incorporates historical volatility and zero-coupon curve data.
+    Also incorporates historical volatility, zero-coupon curve data, and vol surface features.
     """
     sec_path = os.path.join(data_dir, "SPXsecurites.csv")
     opt_path = os.path.join(data_dir, "SPXoptions.csv")
@@ -168,6 +205,9 @@ def fetch_local_spx_data(data_dir: str = "data/SPXdata") -> pd.DataFrame:
     
     # Convert from percentage (e.g., 4.5) to decimal (e.g., 0.045)
     rate30['risk_free_rate'] = rate30['risk_free_rate'] / 100.0
+
+    # Load surface features (Skew, Term Structure)
+    surf = fetch_vol_surface_features(data_dir)
 
     # Load options efficiently
     cols = ['date', 'exdate', 'cp_flag', 'strike_price', 'delta', 'gamma', 'vega', 'theta', 'impl_volatility', 'best_bid', 'best_offer']
@@ -228,10 +268,13 @@ def fetch_local_spx_data(data_dir: str = "data/SPXdata") -> pd.DataFrame:
     merged = pd.merge(under, daily_opts, on='date', how='inner')
     merged = pd.merge(merged, v30, on='date', how='left')
     merged = pd.merge(merged, rate30, on='date', how='left')
+    merged = pd.merge(merged, surf, on='date', how='left')
     
     # Forward fill any missing rates or hist vol if they exist
     merged['risk_free_rate'] = merged['risk_free_rate'].ffill().fillna(0.02) # default to 2% if completely missing
     merged['hist_vol_30'] = merged['hist_vol_30'].ffill()
+    merged['skew_25d'] = merged['skew_25d'].ffill()
+    merged['term_structure_30_10'] = merged['term_structure_30_10'].ffill()
     
     merged = merged.sort_values('date')
     
