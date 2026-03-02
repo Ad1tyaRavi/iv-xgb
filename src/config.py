@@ -10,6 +10,6 @@ class Config:
     options_csv: str = "data/SPXdata/SPXoptions.csv"
     securities_csv: str = "data/SPXdata/SPXsecurites.csv"
     outputs_dir: str = "outputs"
-    spike_threshold: float = 0.15
-    lookahead_days: int = 3
+    spike_threshold: float = 2.0
+    lookahead_days: int = 5
     train_frac: float = 0.7

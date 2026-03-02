@@ -116,19 +116,64 @@ def plot_confusions(y_true, p1, p2, outpath, thr=0.5):
     fig.tight_layout()
     fig.savefig(outpath, dpi=140); plt.close(fig)
 
-def feature_importance_xgb(model: Pipeline, columns: list[str]) -> pd.DataFrame:
+from sklearn.calibration import calibration_curve
+
+def plot_calibration_curve(y_true, proba, outpath):
+    prob_true, prob_pred = calibration_curve(y_true, proba, n_bins=10)
+    plt.figure(figsize=(6,6))
+    plt.plot(prob_pred, prob_true, marker='o', linewidth=1, label='XGBoost')
+    plt.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfectly Calibrated')
+    plt.xlabel('Predicted Probability')
+    plt.ylabel('Actual Fraction of Positives')
+    plt.title('Calibration Curve (Reliability Diagram)')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(outpath, dpi=140)
+    plt.close()
+
+import shap
+
+def feature_importance_xgb(model: Pipeline, X_data: np.ndarray, columns: list[str], outpath: str = None) -> pd.DataFrame:
+    """
+    Overhauls feature importance by using SHAP values instead of native weights.
+    Provides a more accurate representation of how features contribute to predictions.
+    Also generates a SHAP summary plot if outpath is provided.
+    """
     # Extract the XGBoost model from the pipeline
     xgb_model = model.named_steps['classifier']
-    gain = xgb_model.get_booster().get_score(importance_type='gain')
-    weight = xgb_model.get_booster().get_score(importance_type='weight')
-    keys = set(gain.keys()) | set(weight.keys())
-    rows = []
-    for k in keys:
-        idx = int(k.strip('f'))
-        rows.append({
-            'feature': columns[idx] if idx < len(columns) else k,
-            'gain': gain.get(k, 0.0),
-            'weight': weight.get(k, 0.0)
-        })
-    imp = pd.DataFrame(rows).sort_values('gain', ascending=False)
+
+    # Preprocess X_data using the pipeline's imputer and scaler
+    preprocessor = Pipeline(model.steps[:-1])
+    X_transformed = preprocessor.transform(X_data)
+
+    # Calculate SHAP values
+    # For binary classification with XGBoost, shap_values might be a 2D array (samples, features)
+    # or a list of two 2D arrays (samples, features) for each class.
+    # XGBClassifier in recent SHAP versions usually returns values for class 1 directly.
+    explainer = shap.TreeExplainer(xgb_model)
+    shap_values = explainer.shap_values(X_transformed)
+
+    # Aggregate absolute SHAP values across all samples for importance
+    if isinstance(shap_values, list):
+        # Multi-class or some older SHAP versions return a list
+        # For binary classification, we care about the values for class 1 (index 1)
+        importance_vals = np.abs(shap_values[1]).mean(axis=0)
+        shap_for_plot = shap_values[1]
+    else:
+        importance_vals = np.abs(shap_values).mean(axis=0)
+        shap_for_plot = shap_values
+
+    imp = pd.DataFrame({
+        'feature': columns,
+        'shap_importance': importance_vals
+    }).sort_values('shap_importance', ascending=False)
+
+    if outpath:
+        plt.figure(figsize=(10, 8))
+        shap.summary_plot(shap_for_plot, X_transformed, feature_names=columns, show=False)
+        plt.title('SHAP Summary (Feature Impact on Predictions)')
+        plt.tight_layout()
+        plt.savefig(outpath, dpi=140)
+        plt.close()
+
     return imp

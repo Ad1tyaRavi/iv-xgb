@@ -1,28 +1,26 @@
 import numpy as np
 import pandas as pd
 
-def realistic_iv_signal_backtest(df: pd.DataFrame, proba_col: str, use_dynamic_threshold: bool = False, fixed_threshold: float = 0.5, group_by_col: str = None) -> dict:
+def realistic_iv_signal_backtest(df: pd.DataFrame, proba_col: str, use_dynamic_threshold: bool = False, fixed_threshold: float = 0.5, group_by_col: str = None, lookahead: int = 5, spike_threshold: float = 2.0) -> dict:
     """
     Daily Path-Dependent Backtest Engine.
     Simulates $100k portfolio, 3 concurrent slots.
     Executes ATM Straddles with $0.65/leg commission ($1.30 per trade in, $1.30 out).
-    Oracle Take-Profit: Exits immediately if IV hits 1.15x entry IV within lookahead.
+    Oracle Take-Profit: Exits immediately if IV hits the Z-Score threshold within lookahead.
     Stratifies results by probability tiers.
     """
     if group_by_col:
         results = {}
         for group_name, sub_df in df.groupby(group_by_col):
-            results[str(group_name)] = run_simulation(sub_df, proba_col, use_dynamic_threshold, fixed_threshold)
+            results[str(group_name)] = run_simulation(sub_df, proba_col, use_dynamic_threshold, fixed_threshold, lookahead, spike_threshold)
         return results
     else:
-        return run_simulation(df, proba_col, use_dynamic_threshold, fixed_threshold)
+        return run_simulation(df, proba_col, use_dynamic_threshold, fixed_threshold, lookahead, spike_threshold)
 
-def run_simulation(df: pd.DataFrame, proba_col: str, use_dynamic_threshold: bool, fixed_threshold: float) -> dict:
+def run_simulation(df: pd.DataFrame, proba_col: str, use_dynamic_threshold: bool, fixed_threshold: float, lookahead: int = 5, spike_threshold: float = 2.0) -> dict:
     df = df.copy().sort_values('date').reset_index(drop=True)
     
     # Trading logic parameters
-    lookahead = 3
-    spike_threshold = 0.15
     commission_per_leg = 0.65
     commission_per_straddle = commission_per_leg * 2 # $1.30 per straddle
     
@@ -46,7 +44,15 @@ def run_simulation(df: pd.DataFrame, proba_col: str, use_dynamic_threshold: bool
             days_held = trade['days_held'] + 1
             trade['days_held'] = days_held
             
-            iv_target_hit = row['iv'] >= trade['entry_iv'] * (1 + spike_threshold)
+            # Use the same Z-Score logic as labeling for exit
+            # We need to re-calculate Z-score or have it in the row
+            # For simplicity in this backtest, we use the pre-calculated 'iv_zscore' if available
+            if 'iv_zscore' in row:
+                iv_target_hit = row['iv_zscore'] >= spike_threshold
+            else:
+                # Fallback to percentage if zscore not available, but we expect it now
+                iv_target_hit = row['iv'] >= trade['entry_iv'] * (1 + 0.15)
+            
             time_stop_hit = days_held >= lookahead
             
             if iv_target_hit or time_stop_hit:

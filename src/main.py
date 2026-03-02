@@ -3,9 +3,9 @@ from .config import Config
 from .data_fetch import fetch_underlying_ohlcv, fetch_local_spx_data
 from .features import add_underlying_features, synthesize_greeks, finalize_feature_table
 from .labeling import make_labels
-from .models import chronological_split, train_baseline_logreg, train_xgb, plot_roc_curves, plot_confusions, feature_importance_xgb, plot_pr_curves, find_optimal_threshold
+from .models import chronological_split, train_baseline_logreg, train_xgb, plot_roc_curves, plot_confusions, feature_importance_xgb, plot_pr_curves, find_optimal_threshold, plot_calibration_curve
 from .backtest import realistic_iv_signal_backtest
-from sklearn.metrics import average_precision_score, roc_auc_score, precision_recall_fscore_support
+from sklearn.metrics import average_precision_score, roc_auc_score, precision_recall_fscore_support, brier_score_loss
 from sklearn.model_selection import TimeSeriesSplit
 
 def run(cfg: Config):
@@ -93,6 +93,8 @@ def run(cfg: Config):
         'xgb_auc': float(roc_auc_score(all_y_true, all_p_xgb)),
         'baseline_pr_auc': float(average_precision_score(all_y_true, all_p_base)),
         'xgb_pr_auc': float(average_precision_score(all_y_true, all_p_xgb)),
+        'baseline_brier_score': float(brier_score_loss(all_y_true, all_p_base)),
+        'xgb_brier_score': float(brier_score_loss(all_y_true, all_p_xgb)),
         'xgb_avg_optimal_threshold': float(all_test_df['optimal_threshold'].mean()),
         'classification_report_threshold_0.5': {
             'baseline': None,
@@ -111,6 +113,12 @@ def run(cfg: Config):
     metrics['classification_report_threshold_0.5']['xgb'] = prf(all_y_true, (all_p_xgb>=0.5).astype(int))
     metrics['classification_report_threshold_optimal']['xgb'] = prf(all_y_true, yhat_opt_xgb)
 
+    # Calculate expected calibration error (simplified)
+    from sklearn.calibration import calibration_curve
+    prob_true, prob_pred = calibration_curve(all_y_true, all_p_xgb, n_bins=10)
+    ece = np.abs(prob_true - prob_pred).mean()
+    metrics['expected_calibration_error'] = float(ece)
+
     with open(os.path.join(cfg.outputs_dir, 'metrics.json'), 'w') as f:
         json.dump(metrics, f, indent=2)
 
@@ -120,21 +128,31 @@ def run(cfg: Config):
     
     avg_opt_thr = all_test_df['optimal_threshold'].mean()
     plot_confusions(all_y_true, all_p_base, all_p_xgb, os.path.join(cfg.outputs_dir,'confusion_matrices_optimal.png'), thr=avg_opt_thr)
+    plot_calibration_curve(all_y_true, all_p_xgb, os.path.join(cfg.outputs_dir,'calibration_curve.png'))
 
-    imp = feature_importance_xgb(xgb['model'], list(X_cols))
+    # Calculate feature importance and SHAP plots
+    imp = feature_importance_xgb(
+        xgb['model'], 
+        all_test_df[X_cols].values, 
+        list(X_cols), 
+        outpath=os.path.join(cfg.outputs_dir, 'shap_summary_xgb.png')
+    )
     imp.to_csv(os.path.join(cfg.outputs_dir, 'feature_importance_xgb.csv'), index=False)
 
     # Backtest
-    bt_base = realistic_iv_signal_backtest(all_test_df, 'proba_baseline', use_dynamic_threshold=False, fixed_threshold=0.5, group_by_col='market_trend')
-    bt_xgb_05 = realistic_iv_signal_backtest(all_test_df, 'proba_xgb', use_dynamic_threshold=False, fixed_threshold=0.5, group_by_col='market_trend')
-    bt_xgb_opt = realistic_iv_signal_backtest(all_test_df, 'proba_xgb', use_dynamic_threshold=True, group_by_col='market_trend')
+    bt_base = realistic_iv_signal_backtest(all_test_df, 'proba_baseline', use_dynamic_threshold=False, fixed_threshold=0.5, group_by_col='market_trend', lookahead=cfg.lookahead_days, spike_threshold=cfg.spike_threshold)
+    bt_xgb_05 = realistic_iv_signal_backtest(all_test_df, 'proba_xgb', use_dynamic_threshold=False, fixed_threshold=0.5, group_by_col='market_trend', lookahead=cfg.lookahead_days, spike_threshold=cfg.spike_threshold)
+    bt_xgb_opt = realistic_iv_signal_backtest(all_test_df, 'proba_xgb', use_dynamic_threshold=True, group_by_col='market_trend', lookahead=cfg.lookahead_days, spike_threshold=cfg.spike_threshold)
 
     with open(os.path.join(cfg.outputs_dir, 'backtest_summary.json'), 'w') as f:
         json.dump({'baseline': bt_base, 'xgb_0.5': bt_xgb_05, 'xgb_optimal': bt_xgb_opt}, f, indent=2)
 
     print('Done. Key results:')
-    print(json.dumps({'AUC': {'baseline': metrics['baseline_auc'], 'xgb': metrics['xgb_auc']},
-                      'PR-AUC': {'baseline': metrics['baseline_pr_auc'], 'xgb': metrics['xgb_pr_auc']}}, indent=2))
+    print(json.dumps({
+        'AUC': {'baseline': metrics['baseline_auc'], 'xgb': metrics['xgb_auc']},
+        'PR-AUC': {'baseline': metrics['baseline_pr_auc'], 'xgb': metrics['xgb_pr_auc']},
+        'Brier Score': {'baseline': metrics['baseline_brier_score'], 'xgb': metrics['xgb_brier_score']}
+    }, indent=2))
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
