@@ -70,20 +70,22 @@ Institutional-grade, path-dependent engine:
 - **Stratification**: Results are broken down by **probability tiers** and market regimes (Bull/Bear/Neutral).
 
 ### Performance Summary (Latest Run)
-The transition to a **Z-Score Anomaly Target** has yielded institutional-grade results:
+The model provides realistic, non-cheating predictive power for IV regime shifts:
 
-| Metric | Baseline (LogReg) | XGBoost (Upgraded) |
+| Metric | Baseline (LogReg) | XGBoost (Validated) |
 | :--- | :--- | :--- |
-| **ROC-AUC** | 0.9968 | **0.9999** |
-| **PR-AUC** | 0.9889 | **0.9999** |
-| **Brier Score** | 0.0197 | **0.0009** |
+| **ROC-AUC** | 0.7029 | **0.7176** |
+| **PR-AUC** | 0.3845 | **0.3736** |
+| **Brier Score** | 0.2466 | **0.2008** |
 
 #### Backtest Performance (XGBoost Optimal Threshold)
-| Market Regime | N Trades | Win Rate | Avg Return | Sharpe Ratio |
+| Market Regime | N Trades | Win Rate | Total Return | Sharpe Ratio |
 | :--- | :--- | :--- | :--- | :--- |
-| **Bull (1)** | 58 | **74.14%** | **17.75%** | 1.02 |
-| **Neutral (0)** | 412 | **77.18%** | **13.06%** | 1.31 |
-| **Bear (-1)** | 117 | **68.38%** | **8.30%** | 2.22 |
+| **Bull (1)** | 29 | **48.28%** | **26.16%** | 0.63 |
+| **Neutral (0)** | 587 | **41.57%** | **-389.12%** | -0.16 |
+| **Bear (-1)** | 148 | **56.08%** | **35.87%** | 0.56 |
+
+*Note: Results reflect path-dependent simulation with $0.65/leg commissions. Neutral regimes show high decay costs due to higher trade frequency without offsetting spikes.*
 
 *Note: Backtest assumes ATM Straddle execution with realistic commissions and Z-score based path-dependent exit.*
 

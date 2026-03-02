@@ -130,6 +130,31 @@ def synthesize_greeks(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFram
     return out
 
 def finalize_feature_table(df: pd.DataFrame) -> pd.DataFrame:
-    # The original implementation selected a subset of columns, which removed the label columns.
-    # We pass the full dataframe through, as the column selection is handled in main.py.
-    return df
+    """
+    Finalizes the feature table by selecting only a strict whitelist of safe features.
+    This prevents accidental data leakage from future-looking columns or identifiers.
+    """
+    whitelist = [
+        # Identifiers & Targets (passed through but handled in main.py)
+        'date', 'iv_spike_3d', 'iv_change_3d', 'max_future_z',
+        'best_bid', 'best_offer', 'iv', 'market_trend',
+        
+        # Underlying & Price Action
+        'open', 'high', 'low', 'close', 'volume', 'returns', 'log_returns',
+        'high_low_range', 'sma10', 'sma20', 'price_vs_sma10', 'price_vs_sma20',
+        'rsi14', 'volume_mean20', 'volume_ratio',
+        
+        # Volatility & Greeks
+        'delta', 'gamma', 'vega', 'theta', 'iv_zscore',
+        'hist_vol_30', 'risk_free_rate', 'iv_vs_rv', 'iv_percentile_60',
+        'vix_proxy', 'vix_proxy_chg',
+    ]
+    
+    # Add rolling windows of realized volatility
+    for w in [5, 10, 20, 30]:
+        whitelist.extend([f'realized_vol_{w}', f'parkinson_vol_{w}', f'rogers_satchell_vol_{w}'])
+        
+    # Only keep columns that are both in the whitelist and in the dataframe
+    cols_to_keep = [c for c in whitelist if c in df.columns]
+    
+    return df[cols_to_keep]

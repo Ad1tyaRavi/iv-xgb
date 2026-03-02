@@ -38,7 +38,13 @@ def run(cfg: Config):
     
     final = final.dropna(subset=['iv_spike_3d', 'market_trend', 'best_bid', 'best_offer', 'iv'])
     
-    X_cols = final.drop(columns=['date','close','iv_spike_3d','iv_change_3d','iv_spike_1d','iv_spike_5d','iv_change_1d','iv_change_5d', 'best_bid', 'best_offer'], errors='ignore').columns
+    # Target and identifier columns to exclude from training
+    exclude_cols = [
+        'date', 'close', 'iv_spike_3d', 'iv_change_3d', 
+        'iv_spike_1d', 'iv_spike_5d', 'iv_change_1d', 'iv_change_5d',
+        'best_bid', 'best_offer', 'max_future_z'
+    ]
+    X_cols = final.drop(columns=exclude_cols, errors='ignore').columns
     
     final = final.dropna(subset=X_cols)
     final.to_csv(cfg.features_csv, index=False)
