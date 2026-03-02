@@ -89,6 +89,8 @@ def run(cfg: Config):
     yhat_opt_xgb = (all_test_df['proba_xgb'] >= all_test_df['optimal_threshold']).astype(int)
 
     metrics = {
+        'spike_threshold': float(cfg.spike_threshold),
+        'lookahead_days': int(cfg.lookahead_days),
         'baseline_auc': float(roc_auc_score(all_y_true, all_p_base)),
         'xgb_auc': float(roc_auc_score(all_y_true, all_p_xgb)),
         'baseline_pr_auc': float(average_precision_score(all_y_true, all_p_base)),
