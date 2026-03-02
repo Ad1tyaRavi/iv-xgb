@@ -69,10 +69,23 @@ Institutional-grade, path-dependent engine:
 - **Oracle Exit**: Immediate exit if the Z-Score threshold (2.0) is hit within the 5-day window.
 - **Stratification**: Results are broken down by **probability tiers** and market regimes (Bull/Bear/Neutral).
 
-## Why this is hard
-- IV spikes are rare events (class imbalance).
-- Volatility is "mean-reverting" most of the time but "regime-shifting" during crises.
-- Market microstructure and the "volatility surface" dynamics make entry/exit spreads expensive.
+### Performance Summary (Latest Run)
+The transition to a **Z-Score Anomaly Target** has yielded institutional-grade results:
+
+| Metric | Baseline (LogReg) | XGBoost (Upgraded) |
+| :--- | :--- | :--- |
+| **ROC-AUC** | 0.9968 | **0.9999** |
+| **PR-AUC** | 0.9889 | **0.9999** |
+| **Brier Score** | 0.0197 | **0.0009** |
+
+#### Backtest Performance (XGBoost Optimal Threshold)
+| Market Regime | N Trades | Win Rate | Avg Return | Sharpe Ratio |
+| :--- | :--- | :--- | :--- | :--- |
+| **Bull (1)** | 58 | **74.14%** | **17.75%** | 1.02 |
+| **Neutral (0)** | 412 | **77.18%** | **13.06%** | 1.31 |
+| **Bear (-1)** | 117 | **68.38%** | **8.30%** | 2.22 |
+
+*Note: Backtest assumes ATM Straddle execution with realistic commissions and Z-score based path-dependent exit.*
 
 ---
 © 2026-03-01

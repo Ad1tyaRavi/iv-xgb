@@ -53,7 +53,7 @@ def train_xgb(trainX, trainy, testX, testy, lookahead_days: int):
     }
     
     tscv = TimeSeriesSplit(n_splits=3, gap=lookahead_days)
-    gs = GridSearchCV(pipeline, params, scoring='roc_auc', cv=tscv, n_jobs=-1, verbose=0)
+    gs = GridSearchCV(pipeline, params, scoring='roc_auc', cv=tscv, n_jobs=1, verbose=0)
     gs.fit(trainX, trainy)
     best = gs.best_estimator_
     proba = best.predict_proba(testX)[:,1]
