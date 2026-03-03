@@ -30,7 +30,7 @@ def train_baseline_logreg(trainX, trainy, testX, testy):
     # For compatibility with old return format, we can return the whole pipeline
     return {'model': pipeline, 'scaler': pipeline.named_steps['scaler'], 'auc': auc, 'proba': proba}
 
-def train_xgb(trainX, trainy, testX, testy, lookahead_days: int):
+def train_xgb(trainX, trainy, testX, testy, lookahead_days: int, monotone_constraints: dict = None):
     # Create a pipeline that imputes, scales, and then classifies
     pipeline = Pipeline([
         ('imputer', SimpleImputer(strategy='mean')),
@@ -39,7 +39,8 @@ def train_xgb(trainX, trainy, testX, testy, lookahead_days: int):
             objective='binary:logistic',
             eval_metric='auc',
             tree_method='hist',
-            scale_pos_weight=max(1.0, (len(trainy)-trainy.sum())/max(1.0,trainy.sum()))
+            scale_pos_weight=max(1.0, (len(trainy)-trainy.sum())/max(1.0,trainy.sum())),
+            monotone_constraints=monotone_constraints
         ))
     ])
 

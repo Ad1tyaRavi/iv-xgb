@@ -13,20 +13,22 @@ def run(cfg: Config):
     os.makedirs(cfg.outputs_dir, exist_ok=True)
 
     # 1) Data
-    data = fetch_local_spx_data()
-    data = data.sort_values('date')
+    cache_path = 'data/merged_final.csv'
+    if os.path.exists(cache_path):
+        print(f"Loading cached merged data from {cache_path}...")
+        data = pd.read_csv(cache_path)
+        data['date'] = pd.to_datetime(data['date'])
+    else:
+        data = fetch_local_spx_data()
+        data = data.sort_values('date')
+        data.to_csv(cache_path, index=False)
+        print(f"Merged data cached to {cache_path}")
 
     # 2) Features
     features = add_underlying_features(data)
     if cfg.use_synthetic_greeks:
         rng = np.random.default_rng(42)
         features = synthesize_greeks(features, rng)
-    else:
-        rv_base = features['hist_vol_30'] if 'hist_vol_30' in features.columns else features['rogers_satchell_vol_20']
-        features['iv_vs_rv'] = features['iv'] / rv_base - 1
-        features['iv_percentile_60'] = features['iv'].rolling(60).apply(
-            lambda x: pd.Series(x).rank(pct=True).iloc[-1] if len(x)==60 else np.nan, raw=False
-        )
 
     # 3) Labels
     labeled = make_labels(features, spike_threshold=cfg.spike_threshold, lookahead_days=cfg.lookahead_days)
@@ -45,6 +47,27 @@ def run(cfg: Config):
         'best_bid', 'best_offer', 'max_future_z'
     ]
     X_cols = final.drop(columns=exclude_cols, errors='ignore').columns
+    
+    # Define Monotonic Constraints based on financial logic
+    # 1: Probability must not decrease as feature increases
+    # -1: Probability must not increase as feature increases
+    constraint_map = {
+        'skew_25d': 1,
+        'skew_10d': 1,
+        'skew_25d_chg3': 1,
+        'skew_10d_chg3': 1,
+        'term_structure_30_10': -1,
+        'term_chg3': -1,
+        'iv_vs_rv': -1,
+        'vanna': 1,
+        'iv_zscore': -1 # Probability of a spike usually higher when IV is compressed (low z-score)
+    }
+    
+    # Create the constraint tuple in the order of X_cols
+    monotone_constraints = []
+    for col in X_cols:
+        monotone_constraints.append(constraint_map.get(col, 0))
+    monotone_constraints = tuple(monotone_constraints)
     
     final = final.dropna(subset=X_cols)
     final.to_csv(cfg.features_csv, index=False)
@@ -69,7 +92,7 @@ def run(cfg: Config):
         X_test = test_df[X_cols].values
 
         base = train_baseline_logreg(X_train, y_train, X_test, y_test)
-        xgb = train_xgb(X_train, y_train, X_test, y_test, lookahead_days=cfg.lookahead_days)
+        xgb = train_xgb(X_train, y_train, X_test, y_test, lookahead_days=cfg.lookahead_days, monotone_constraints=monotone_constraints)
 
         # Optimize threshold on training fold to eliminate lookahead bias
         train_p_xgb = xgb['model'].predict_proba(X_train)[:, 1]

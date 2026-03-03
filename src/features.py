@@ -3,23 +3,34 @@ from scipy.stats import norm
 
 def black_scholes_greeks(flag, S, K, t, r, sigma):
     """
-    Calculates Black-Scholes greeks (delta, gamma, vega, theta)
+    Calculates Black-Scholes greeks (delta, gamma, vega, theta, vanna, charm)
     """
+    # Avoid division by zero
+    t = max(t, 1e-6)
+    sigma = max(sigma, 1e-6)
+    
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * t) / (sigma * np.sqrt(t))
     d2 = d1 - sigma * np.sqrt(t)
+    pdf_d1 = norm.pdf(d1)
     
     if flag == 'c':
         delta = norm.cdf(d1)
-        gamma = norm.pdf(d1) / (S * sigma * np.sqrt(t))
-        vega = S * norm.pdf(d1) * np.sqrt(t)
-        theta = (-S * norm.pdf(d1) * sigma / (2 * np.sqrt(t)) - r * K * np.exp(-r * t) * norm.cdf(d2))
+        gamma = pdf_d1 / (S * sigma * np.sqrt(t))
+        vega = S * pdf_d1 * np.sqrt(t)
+        theta = (-S * pdf_d1 * sigma / (2 * np.sqrt(t)) - r * K * np.exp(-r * t) * norm.cdf(d2))
+        # Vanna: dDelta / dSigma
+        vanna = pdf_d1 * (-d2 / sigma)
+        # Charm: dDelta / dTime
+        charm = -pdf_d1 * (r / (sigma * np.sqrt(t)) - d2 / (2 * t)) # Simplified version
     elif flag == 'p':
         delta = norm.cdf(d1) - 1
-        gamma = norm.pdf(d1) / (S * sigma * np.sqrt(t))
-        vega = S * norm.pdf(d1) * np.sqrt(t)
-        theta = (-S * norm.pdf(d1) * sigma / (2 * np.sqrt(t)) + r * K * np.exp(-r * t) * norm.cdf(-d2))
+        gamma = pdf_d1 / (S * sigma * np.sqrt(t))
+        vega = S * pdf_d1 * np.sqrt(t)
+        theta = (-S * pdf_d1 * sigma / (2 * np.sqrt(t)) + r * K * np.exp(-r * t) * norm.cdf(-d2))
+        vanna = pdf_d1 * (-d2 / sigma)
+        charm = -pdf_d1 * (r / (sigma * np.sqrt(t)) - d2 / (2 * t))
         
-    return delta, gamma, vega, theta
+    return delta, gamma, vega, theta, vanna, charm
 
 def black_scholes_price(flag, S, K, t, r, sigma):
     d1 = (np.log(S / K) + (r + 0.5 * sigma ** 2) * t) / (sigma * np.sqrt(t))
@@ -74,6 +85,17 @@ def add_underlying_features(df: pd.DataFrame) -> pd.DataFrame:
         out[f'parkinson_vol_{w}'] = parkinson_vol(out['high'], out['low'], w)
         out[f'rogers_satchell_vol_{w}'] = rogers_satchell_vol(out['high'], out['low'], out['open'], out['close'], w)
 
+    # Surface Velocity (Changes)
+    if 'skew_25d' in out.columns:
+        out['skew_25d_chg3'] = out['skew_25d'].diff(3)
+        out['skew_25d_chg5'] = out['skew_25d'].diff(5)
+    if 'skew_10d' in out.columns:
+        out['skew_10d_chg3'] = out['skew_10d'].diff(3)
+        out['skew_10d_chg5'] = out['skew_10d'].diff(5)
+    if 'term_structure_30_10' in out.columns:
+        out['term_chg3'] = out['term_structure_30_10'].diff(3)
+        out['term_chg5'] = out['term_structure_30_10'].diff(5)
+
     # Use actual 30D historical volatility as main proxy if available, else fallback
     if 'hist_vol_30' in out.columns:
         out['vix_proxy'] = out['hist_vol_30'] * 100
@@ -114,12 +136,14 @@ def synthesize_greeks(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFram
     sigma = out['iv'].values
     flag = 'c'
 
-    delta, gamma, vega, theta = black_scholes_greeks(flag, S, K, t, r, sigma)
+    delta, gamma, vega, theta, vanna, charm = black_scholes_greeks(flag, S, K, t, r, sigma)
     
     out['delta'] = delta
     out['gamma'] = gamma
     out['vega'] = vega
     out['theta'] = theta
+    out['vanna'] = vanna
+    out['charm'] = charm
 
     # --- Relative IV & Percentile ---
     rv_base = out['hist_vol_30'] if 'hist_vol_30' in out.columns else out['rogers_satchell_vol_20']
@@ -134,6 +158,18 @@ def finalize_feature_table(df: pd.DataFrame) -> pd.DataFrame:
     Finalizes the feature table by selecting only a strict whitelist of safe features.
     This prevents accidental data leakage from future-looking columns or identifiers.
     """
+    out = df.copy()
+    
+    # Ensure relative IV metrics are calculated even if not using synthetic greeks
+    if 'iv' in out.columns:
+        rv_base = out['hist_vol_30'] if 'hist_vol_30' in out.columns else out['rogers_satchell_vol_20']
+        if 'iv_vs_rv' not in out.columns:
+            out['iv_vs_rv'] = out['iv'] / rv_base - 1
+        if 'iv_percentile_60' not in out.columns:
+            out['iv_percentile_60'] = out['iv'].rolling(60).apply(
+                lambda x: pd.Series(x).rank(pct=True).iloc[-1] if len(x)==60 else np.nan, raw=False
+            )
+
     whitelist = [
         # Identifiers & Targets (passed through but handled in main.py)
         'date', 'iv_spike_3d', 'iv_change_3d', 'max_future_z',
@@ -145,9 +181,11 @@ def finalize_feature_table(df: pd.DataFrame) -> pd.DataFrame:
         'rsi14', 'volume_mean20', 'volume_ratio',
         
         # Volatility & Greeks
-        'delta', 'gamma', 'vega', 'theta', 'iv_zscore',
+        'delta', 'gamma', 'vega', 'theta', 'vanna', 'charm', 'iv_zscore',
         'hist_vol_30', 'risk_free_rate', 'iv_vs_rv', 'iv_percentile_60',
         'vix_proxy', 'vix_proxy_chg', 'skew_25d', 'term_structure_30_10',
+        'skew_10d', 'skew_25d_chg3', 'skew_25d_chg5', 'skew_10d_chg3', 'skew_10d_chg5', 
+        'term_chg3', 'term_chg5',
     ]
     
     # Add rolling windows of realized volatility
