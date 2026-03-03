@@ -1,0 +1,31 @@
+{
+  "spike_threshold": 2.0,
+  "lookahead_days": 5,
+  "baseline_auc": 0.6920035672284764,
+  "xgb_auc": 0.7169765154848722,
+  "baseline_pr_auc": 0.39673225589451194,
+  "xgb_pr_auc": 0.3795884268625448,
+  "baseline_brier_score": 0.25100435758277784,
+  "xgb_brier_score": 0.1998406727078112,
+  "xgb_avg_optimal_threshold": 0.6397286653518677,
+  "classification_report_threshold_0.5": {
+    "baseline": {
+      "precision": 0.29062996294335625,
+      "recall": 0.6896984924623115,
+      "f1": 0.40893854748603353
+    },
+    "xgb": {
+      "precision": 0.32860184528034064,
+      "recall": 0.5816582914572864,
+      "f1": 0.4199546485260771
+    }
+  },
+  "classification_report_threshold_optimal": {
+    "xgb": {
+      "precision": 0.3608786610878661,
+      "recall": 0.4334170854271357,
+      "f1": 0.3938356164383562
+    }
+  },
+  "expected_calibration_error": 0.2430755170711813
+}
