@@ -51,6 +51,7 @@ def train_xgb(trainX, trainy, testX, testy, lookahead_days: int, monotone_constr
         'classifier__n_estimators': [100, 200],
         'classifier__subsample': [0.8, 0.9],
         'classifier__colsample_bytree': [0.8, 0.9],
+        'classifier__max_delta_step': [0, 1, 5] # 0 is default, 1-10 is recommended for imbalanced data
     }
     
     tscv = TimeSeriesSplit(n_splits=3, gap=lookahead_days)
