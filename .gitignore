@@ -8,7 +8,7 @@ __pycache__/
 .venv/
 
 # Output files
-# outputs/
+outputs/
 
 # Data files
 data/
